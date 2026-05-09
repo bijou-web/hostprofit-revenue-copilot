@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const ENDPOINT = "https://kaoxxfggcgmrjozridaa.supabase.co/functions/v1/analyze-listing-public";
+const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imthb3h4ZmdnY2dtcmpvenJpZGFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODQ3MjgsImV4cCI6MjA4NzQ2MDcyOH0.hpOVf21OmFQOtTzgp0FBy5CHDqcu8C8PXFWMTlmJzyU";
+const ENDPOINT = "https://kaoxxfggcgmrjozridaa.supabase.co/functions/v1/analyze-listing";
 
 export async function POST(req: NextRequest) {
   const { listing_url } = await req.json();
@@ -8,26 +9,49 @@ export async function POST(req: NextRequest) {
   try {
     const r = await fetch(ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ listing_url: clean_url })
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + ANON_KEY,
+        "apikey": ANON_KEY,
+      },
+      body: JSON.stringify({ listing_url: clean_url, api_key: process.env.HOSTPROFIT_API_KEY })
     });
     const d = await r.json();
-    const cats: Record<string,number> = {};
-    Object.entries(d.categories || {}).forEach(([k,v]:any) => {
-      cats[k] = v.monthly_loss || 0;
+
+    const cats: Record<string, any> = {};
+    (d.issues || []).forEach((issue: any) => {
+      cats[issue.type] = {
+        grade: "C",
+        monthly_loss: issue.estimatedLoss || 0,
+        headline: issue.headline || "",
+        stat: issue.supportingStat || ""
+      };
     });
-    const topAction = Array.isArray(d.top_actions) && d.top_actions.length > 0
-      ? d.top_actions[0].action + " (" + d.top_actions[0].dollar_impact + ")"
-      : d.upgrade_message || "Review listing optimization opportunities";
+
+    const actions = (d.fixes || []).slice(0, 4).map((f: any, i: number) => {
+      const issue = (d.issues || []).find((iss: any) => iss.id === f.issueId) || {};
+      return {
+        rank: i + 1,
+        category: (issue as any).type || "general",
+        action: f.recommendation || "",
+        detail: f.detail || "",
+        dollar_impact: (issue as any).estimatedLoss || 0,
+        stat: (issue as any).supportingStat || ""
+      };
+    });
+
     return NextResponse.json({
-      name: d.listing_name || "STR Listing",
-      market: d.location || "",
-      score: d.overall_score || 0,
-      monthly_gap: d.monthly_revenue_gap || 0,
-      annual_gap: (d.monthly_revenue_gap || 0) * 12,
-      status_color: "Blue",
-      top_action: topAction,
+      listing_name: d.listingName || "STR Listing",
+      location: d.listingLocation || "",
+      overall_score: d.overallScore || 0,
+      monthly_revenue_gap: d.estimatedMonthlyLoss || 0,
+      annual_revenue_gap: (d.estimatedMonthlyLoss || 0) * 12,
+      review_score: d.reviewScore || 0,
+      review_count: d.reviewCount || 0,
+      suggested_title: d.suggestedTitle || "",
+      plan: "pro",
       categories: cats,
+      top_actions: actions,
     });
   } catch(e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
